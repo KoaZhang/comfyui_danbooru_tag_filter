@@ -44,10 +44,10 @@ function injectStyles() {
             transform-origin: top left;
             box-sizing: border-box;
             border-radius: 12px;
-            border: 1px solid #353d4c;
-            background: linear-gradient(180deg, #1b1f29 0%, #151922 100%);
-            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25);
-            padding: 10px 10px 12px;
+            border: 1px solid #32394a;
+            background: linear-gradient(180deg, #1a1f29 0%, #141924 100%);
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+            padding: 9px 10px 11px;
             color: #d8deeb;
             font-family: Inter, "Segoe UI", Arial, sans-serif;
             user-select: none;
@@ -58,44 +58,85 @@ function injectStyles() {
         }
 
         .dtf-help {
-            margin: 0 0 10px;
-            font-size: 12px;
+            margin: 0 0 8px;
+            font-size: 11px;
             line-height: 1.2;
-            color: #d0d6e2;
+            color: #aeb8cb;
+            letter-spacing: 0.01em;
+        }
+
+        .dtf-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin: 0 0 8px;
+        }
+
+        .dtf-toolbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .dtf-mini-btn {
+            appearance: none;
+            border: 1px solid #495267;
+            background: linear-gradient(180deg, #262c37 0%, #1d222d 100%);
+            color: #d7e0f3;
+            border-radius: 999px;
+            padding: 3px 10px;
+            font-size: 11px;
+            line-height: 1.1;
+            font-weight: 700;
+            cursor: pointer;
+            letter-spacing: 0.02em;
+        }
+
+        .dtf-mini-btn:hover {
+            border-color: #73809b;
+            color: #ffffff;
+        }
+
+        .dtf-status {
+            font-size: 11px;
+            color: #8f99ae;
+            white-space: nowrap;
         }
 
         .dtf-grid {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 7px;
             align-items: flex-start;
         }
 
         .dtf-pill {
             appearance: none;
-            border: 1px solid #565e72;
-            background: linear-gradient(180deg, #2b3140 0%, #222734 100%);
-            color: #c0c8d6;
+            border: 1px solid #4f576b;
+            background: linear-gradient(180deg, #2a3040 0%, #1f2430 100%);
+            color: #c6cedb;
             border-radius: 999px;
-            padding: 5px 14px;
-            font-size: 13px;
+            padding: 5px 13px;
+            font-size: 12px;
             line-height: 1;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
             white-space: nowrap;
-            transition: background 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+            transition: background 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
         }
 
         .dtf-pill:hover {
             border-color: #7a859d;
             color: #edf2ff;
+            transform: translateY(-1px);
         }
 
         .dtf-pill.is-selected {
-            background: linear-gradient(180deg, #2f7cff 0%, #215fd3 100%);
-            border-color: #8ac1ff;
+            background: linear-gradient(180deg, #2f83ff 0%, #1f5fd6 100%);
+            border-color: #8dc2ff;
             color: #ffffff;
-            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(83, 145, 255, 0.16);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(83, 145, 255, 0.18);
         }
     `;
 
@@ -158,6 +199,31 @@ function createPanel(node) {
     help.textContent = "Click categories to keep them";
     root.appendChild(help);
 
+    const toolbar = document.createElement("div");
+    toolbar.className = "dtf-toolbar";
+
+    const toolbarActions = document.createElement("div");
+    toolbarActions.className = "dtf-toolbar-actions";
+
+    const allButton = document.createElement("button");
+    allButton.type = "button";
+    allButton.className = "dtf-mini-btn";
+    allButton.textContent = "All";
+    toolbarActions.appendChild(allButton);
+
+    const noneButton = document.createElement("button");
+    noneButton.type = "button";
+    noneButton.className = "dtf-mini-btn";
+    noneButton.textContent = "None";
+    toolbarActions.appendChild(noneButton);
+
+    const status = document.createElement("div");
+    status.className = "dtf-status";
+
+    toolbar.appendChild(toolbarActions);
+    toolbar.appendChild(status);
+    root.appendChild(toolbar);
+
     const grid = document.createElement("div");
     grid.className = "dtf-grid";
     root.appendChild(grid);
@@ -171,6 +237,10 @@ function createPanel(node) {
     const state = {
         node,
         root,
+        toolbar,
+        allButton,
+        noneButton,
+        status,
         grid,
         categories: [],
         selectedCategories: [],
@@ -178,6 +248,18 @@ function createPanel(node) {
         buttons: new Map(),
         panelHeight: MIN_PANEL_HEIGHT,
     };
+
+    allButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setSelection(node, state, [...state.categories], true);
+    });
+
+    noneButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setSelection(node, state, [], true);
+    });
 
     domPanels.set(node.id, state);
     return state;
@@ -221,6 +303,15 @@ function updateButtonStyles(state) {
     for (const [category, button] of state.buttons.entries()) {
         button.classList.toggle("is-selected", selected.has(category));
     }
+    state.status.textContent = `${state.selectedCategories.length}/${state.categories.length} selected`;
+}
+
+function setSelection(node, state, nextSelection, touched = true) {
+    const selected = new Set(nextSelection);
+    state.selectedCategories = state.categories.filter((item) => selected.has(item));
+    state.selectionTouched = touched;
+    updateButtonStyles(state);
+    syncSelectedValue(node, state);
 }
 
 function toggleCategory(node, state, category) {
@@ -231,10 +322,7 @@ function toggleCategory(node, state, category) {
         selected.add(category);
     }
 
-    state.selectedCategories = state.categories.filter((item) => selected.has(item));
-    state.selectionTouched = true;
-    updateButtonStyles(state);
-    syncSelectedValue(node, state);
+    setSelection(node, state, [...selected], true);
 }
 
 function renderButtons(node, state) {
@@ -330,10 +418,14 @@ function ensureManagedNode(node) {
     }
 
     const categories = parseCategoryList(categoriesWidget?.value || node.properties?.available_categories_json);
+    const hasWidgetSelection = typeof selectedWidget?.value === "string" && selectedWidget.value.trim().length > 0;
+    const hasPropertySelection =
+        typeof node.properties?.selected_categories_json === "string" &&
+        node.properties.selected_categories_json.trim().length > 0;
     const encodedSelection =
-        typeof selectedWidget?.value === "string" && selectedWidget.value.trim()
+        hasWidgetSelection
             ? selectedWidget.value.trim()
-            : typeof node.properties?.selected_categories_json === "string"
+            : hasPropertySelection
               ? node.properties.selected_categories_json.trim()
               : "";
 
@@ -352,7 +444,14 @@ function ensureManagedNode(node) {
         state.selectionTouched = false;
     }
 
-    if (!state.selectedCategories.length && categories.length) {
+    const shouldRestoreDefaultSelection =
+        !state.selectedCategories.length &&
+        categories.length &&
+        !hasWidgetSelection &&
+        !hasPropertySelection &&
+        !state.selectionTouched;
+
+    if (shouldRestoreDefaultSelection) {
         const keepUnclassified = Boolean(getBackingWidget(node, "keep_unclassified")?.value);
         state.selectedCategories = getDefaultSelection(categories, keepUnclassified);
         state.selectionTouched = false;

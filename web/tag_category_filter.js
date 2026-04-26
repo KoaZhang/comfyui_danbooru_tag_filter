@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "DanbooruTagCategoryFilter";
+const DISPLAY_NAME = "Danbooru Tag Category Filter";
 const UNKNOWN_CATEGORY = "Unknown";
 const PANEL_LEFT = 8;
 const PANEL_TOP = 108;
@@ -11,32 +12,22 @@ const MIN_PANEL_HEIGHT = 118;
 
 const domPanels = new Map();
 let stylesInjected = false;
-let layoutLoopStarted = false;
+let loopStarted = false;
 
 function isTargetNode(node) {
     if (!node) {
         return false;
     }
 
-    return (
-        node.comfyClass === NODE_NAME ||
-        node.type === NODE_NAME ||
-        node.constructor?.comfyClass === NODE_NAME ||
-        node.constructor?.type === NODE_NAME
-    );
-}
+    const candidates = [
+        node.comfyClass,
+        node.type,
+        node.constructor?.comfyClass,
+        node.constructor?.type,
+        node.title,
+    ].filter(Boolean);
 
-function hideWidget(widget) {
-    if (!widget || widget.__dtfHidden) {
-        return;
-    }
-
-    widget.__dtfHidden = true;
-    widget.computeSize = () => [0, -4];
-    widget.draw = () => {};
-    widget.serializeValue = () => widget.value;
-    widget.type = "dtf_hidden";
-    widget.hidden = true;
+    return candidates.includes(NODE_NAME) || candidates.includes(DISPLAY_NAME);
 }
 
 function injectStyles() {
@@ -48,7 +39,7 @@ function injectStyles() {
     style.textContent = `
         .dtf-panel {
             position: fixed;
-            z-index: 30;
+            z-index: 40;
             pointer-events: auto;
             transform-origin: top left;
             box-sizing: border-box;
@@ -107,6 +98,7 @@ function injectStyles() {
             box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(83, 145, 255, 0.16);
         }
     `;
+
     document.head.appendChild(style);
     stylesInjected = true;
 }
@@ -129,85 +121,24 @@ function getBackingWidget(node, name) {
     return node.widgets?.find((widget) => widget.name === name) ?? null;
 }
 
-function getKeepUnclassifiedValue(node) {
-    return Boolean(getBackingWidget(node, "keep_unclassified")?.value);
+function hideWidget(widget) {
+    if (!widget || widget.__dtfHidden) {
+        return;
+    }
+
+    widget.__dtfHidden = true;
+    widget.computeSize = () => [0, -4];
+    widget.draw = () => {};
+    widget.serializeValue = () => widget.value;
+    widget.type = "dtf_hidden";
+    widget.hidden = true;
 }
 
 function getDefaultSelection(categories, keepUnclassified) {
     return categories.filter((category) => category !== UNKNOWN_CATEGORY || keepUnclassified);
 }
 
-function syncSelectedValue(node, panelState) {
-    const backingWidget = getBackingWidget(node, "selected_categories_json");
-    const encoded = JSON.stringify(panelState.selectedCategories);
-    if (backingWidget) {
-        backingWidget.value = encoded;
-        if (typeof backingWidget.callback === "function") {
-            backingWidget.callback(encoded);
-        }
-    }
-
-    node.properties = node.properties || {};
-    node.properties.selected_categories = [...panelState.selectedCategories];
-    node.properties.selected_categories_json = encoded;
-    node.properties.__dtfSelectionTouched = Boolean(panelState.selectionTouched);
-    if (Array.isArray(node.widgets_values)) {
-        const index = node.widgets?.indexOf(backingWidget);
-        if (index >= 0) {
-            node.widgets_values[index] = encoded;
-        }
-    }
-    node.setDirtyCanvas(true, true);
-}
-
-function ensureNodeSize(node, panelState) {
-    const width = Math.max(node.size?.[0] || MIN_NODE_WIDTH, MIN_NODE_WIDTH);
-    const panelWidth = Math.max(width - PANEL_LEFT - PANEL_RIGHT, 180);
-    if (panelState.root.style.width !== `${panelWidth}px`) {
-        panelState.root.style.width = `${panelWidth}px`;
-    }
-
-    const measuredHeight = Math.max(panelState.root.offsetHeight || MIN_PANEL_HEIGHT, MIN_PANEL_HEIGHT);
-    panelState.panelHeight = measuredHeight;
-    const desiredHeight = PANEL_TOP + measuredHeight + PANEL_BOTTOM;
-    if (!node.size || node.size[0] !== width || node.size[1] < desiredHeight) {
-        node.setSize([width, desiredHeight]);
-    }
-}
-
-function ensureManagedNode(node) {
-    if (!isTargetNode(node)) {
-        return null;
-    }
-
-    for (const widget of node.widgets || []) {
-        if (widget.name === "selected_categories_json" || widget.name === "available_categories_json") {
-            hideWidget(widget);
-        }
-    }
-
-    let panelState = node.__dtfPanelState;
-    if (!panelState) {
-        panelState = createDomPanel(node);
-        node.__dtfPanelState = panelState;
-    }
-
-    if (!node.__dtfSpacerAdded && typeof node.addCustomWidget === "function") {
-        addSpacerWidget(node, panelState);
-        node.__dtfSpacerAdded = true;
-    }
-
-    const categoriesWidget = getBackingWidget(node, "available_categories_json");
-    if (categoriesWidget?.value) {
-        node.properties = node.properties || {};
-        node.properties.available_categories_json = categoriesWidget.value;
-    }
-
-    loadSelectionState(node, panelState);
-    return panelState;
-}
-
-function createDomPanel(node) {
+function createPanel(node) {
     injectStyles();
 
     const existing = domPanels.get(node.id);
@@ -224,12 +155,16 @@ function createDomPanel(node) {
 
     const help = document.createElement("div");
     help.className = "dtf-help";
-    help.textContent = "Double-click categories to keep them";
+    help.textContent = "Click categories to keep them";
     root.appendChild(help);
 
     const grid = document.createElement("div");
     grid.className = "dtf-grid";
     root.appendChild(grid);
+
+    root.addEventListener("mousedown", (event) => {
+        event.stopPropagation();
+    });
 
     document.body.appendChild(root);
 
@@ -237,7 +172,6 @@ function createDomPanel(node) {
         node,
         root,
         grid,
-        help,
         categories: [],
         selectedCategories: [],
         selectionTouched: false,
@@ -245,140 +179,202 @@ function createDomPanel(node) {
         panelHeight: MIN_PANEL_HEIGHT,
     };
 
-    root.addEventListener("mousedown", (event) => {
-        event.stopPropagation();
-    });
-
     domPanels.set(node.id, state);
     return state;
 }
 
-function removeDomPanel(node) {
-    const state = domPanels.get(node.id);
+function removePanel(nodeId) {
+    const state = domPanels.get(nodeId);
     if (!state) {
         return;
     }
 
     state.root.remove();
-    domPanels.delete(node.id);
+    domPanels.delete(nodeId);
 }
 
-function cleanupOrphanPanels() {
-    const liveIds = new Set((app.graph?._nodes || []).map((graphNode) => String(graphNode.id)));
-    for (const [nodeId, state] of domPanels.entries()) {
-        const nodeObject = app.graph?.getNodeById?.(Number(nodeId)) || app.graph?.getNodeById?.(nodeId);
-        if (!liveIds.has(String(nodeId)) || !nodeObject) {
-            state.root.remove();
-            domPanels.delete(nodeId);
-            continue;
-        }
+function syncSelectedValue(node, state) {
+    const backingWidget = getBackingWidget(node, "selected_categories_json");
+    const encoded = JSON.stringify(state.selectedCategories);
 
-        if (!document.body.contains(state.root)) {
-            document.body.appendChild(state.root);
-        }
-    }
-}
-
-function reconcileManagedNodes() {
-    for (const node of app.graph?._nodes || []) {
-        if (!isTargetNode(node)) {
-            continue;
-        }
-
-        const panelState = ensureManagedNode(node);
-        if (panelState && !document.body.contains(panelState.root)) {
-            document.body.appendChild(panelState.root);
-        }
-    }
-}
-
-function renderButtons(panelState) {
-    panelState.grid.replaceChildren();
-    panelState.buttons.clear();
-
-    for (const category of panelState.categories) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "dtf-pill";
-        button.textContent = category;
-        button.dataset.category = category;
-        button.addEventListener("dblclick", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            toggleCategory(panelState.node, panelState, category);
-        });
-        button.addEventListener("mousedown", (event) => {
-            event.stopPropagation();
-        });
-
-        panelState.grid.appendChild(button);
-        panelState.buttons.set(category, button);
+    if (backingWidget) {
+        backingWidget.value = encoded;
     }
 
-    updateButtonStyles(panelState);
+    node.properties = node.properties || {};
+    node.properties.selected_categories = [...state.selectedCategories];
+    node.properties.selected_categories_json = encoded;
+    node.properties.__dtfSelectionTouched = Boolean(state.selectionTouched);
+
+    if (Array.isArray(node.widgets_values) && backingWidget) {
+        const index = node.widgets?.indexOf(backingWidget);
+        if (index >= 0) {
+            node.widgets_values[index] = encoded;
+        }
+    }
+
+    node.setDirtyCanvas(true, true);
 }
 
-function updateButtonStyles(panelState) {
-    const selected = new Set(panelState.selectedCategories);
-    for (const [category, button] of panelState.buttons.entries()) {
+function updateButtonStyles(state) {
+    const selected = new Set(state.selectedCategories);
+    for (const [category, button] of state.buttons.entries()) {
         button.classList.toggle("is-selected", selected.has(category));
     }
 }
 
-function loadSelectionState(node, panelState) {
-    const categoriesWidget = getBackingWidget(node, "available_categories_json");
-    const selectionWidget = getBackingWidget(node, "selected_categories_json");
-    const categories = parseCategoryList(categoriesWidget?.value || node.properties?.available_categories_json);
-    panelState.categories = categories;
-
-    const widgetValue =
-        typeof selectionWidget?.value === "string" && selectionWidget.value.trim()
-            ? selectionWidget.value.trim()
-            : typeof node.properties?.selected_categories_json === "string"
-              ? node.properties.selected_categories_json.trim()
-              : "";
-    if (widgetValue) {
-        panelState.selectedCategories = parseCategoryList(widgetValue).filter((category) => categories.includes(category));
-        panelState.selectionTouched = true;
-    } else if (Array.isArray(node.properties?.selected_categories)) {
-        panelState.selectedCategories = node.properties.selected_categories.filter((category) => categories.includes(category));
-        panelState.selectionTouched = Boolean(node.properties?.__dtfSelectionTouched);
-    } else {
-        panelState.selectedCategories = getDefaultSelection(categories, getKeepUnclassifiedValue(node));
-        panelState.selectionTouched = false;
-    }
-
-    if (!panelState.selectedCategories.length && categories.length) {
-        panelState.selectedCategories = getDefaultSelection(categories, getKeepUnclassifiedValue(node));
-        panelState.selectionTouched = false;
-    }
-
-    renderButtons(panelState);
-    syncSelectedValue(node, panelState);
-    ensureNodeSize(node, panelState);
-}
-
-function toggleCategory(node, panelState, category) {
-    const selected = new Set(panelState.selectedCategories);
+function toggleCategory(node, state, category) {
+    const selected = new Set(state.selectedCategories);
     if (selected.has(category)) {
         selected.delete(category);
     } else {
         selected.add(category);
     }
 
-    panelState.selectedCategories = panelState.categories.filter((item) => selected.has(item));
-    panelState.selectionTouched = true;
-    updateButtonStyles(panelState);
-    syncSelectedValue(node, panelState);
+    state.selectedCategories = state.categories.filter((item) => selected.has(item));
+    state.selectionTouched = true;
+    updateButtonStyles(state);
+    syncSelectedValue(node, state);
 }
 
-function updatePanelPosition(panelState) {
-    const { node, root } = panelState;
+function renderButtons(node, state) {
+    const renderKey = JSON.stringify({
+        categories: state.categories,
+        selected: state.selectedCategories,
+    });
+
+    if (state.renderKey === renderKey) {
+        updateButtonStyles(state);
+        return;
+    }
+
+    state.renderKey = renderKey;
+    state.grid.replaceChildren();
+    state.buttons.clear();
+
+    for (const category of state.categories) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "dtf-pill";
+        button.textContent = category;
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleCategory(node, state, category);
+        });
+        button.addEventListener("mousedown", (event) => {
+            event.stopPropagation();
+        });
+        state.grid.appendChild(button);
+        state.buttons.set(category, button);
+    }
+
+    updateButtonStyles(state);
+}
+
+function addSpacerWidget(node, state) {
+    if (node.__dtfSpacerAdded) {
+        return;
+    }
+
+    const widget = {
+        type: "dtf_dom_spacer",
+        name: "category_picker",
+        value: "",
+        options: { serialize: false },
+        computeSize(width) {
+            const panelWidth = Math.max(width - PANEL_LEFT - PANEL_RIGHT, 180);
+            state.root.style.width = `${panelWidth}px`;
+            state.panelHeight = Math.max(state.root.offsetHeight || MIN_PANEL_HEIGHT, MIN_PANEL_HEIGHT);
+            return [width, state.panelHeight + 8];
+        },
+        draw() {
+            return state.panelHeight + 8;
+        },
+    };
+
+    node.addCustomWidget(widget);
+    node.__dtfSpacerAdded = true;
+}
+
+function ensureNodeSize(node, state) {
+    const width = Math.max(node.size?.[0] || MIN_NODE_WIDTH, MIN_NODE_WIDTH);
+    const panelWidth = Math.max(width - PANEL_LEFT - PANEL_RIGHT, 180);
+    state.root.style.width = `${panelWidth}px`;
+    state.panelHeight = Math.max(state.root.offsetHeight || MIN_PANEL_HEIGHT, MIN_PANEL_HEIGHT);
+    const desiredHeight = PANEL_TOP + state.panelHeight + PANEL_BOTTOM;
+    if (!node.size || node.size[0] !== width || node.size[1] < desiredHeight) {
+        node.setSize([width, desiredHeight]);
+    }
+}
+
+function ensureManagedNode(node) {
+    if (!isTargetNode(node)) {
+        return null;
+    }
+
+    for (const widget of node.widgets || []) {
+        if (widget.name === "selected_categories_json" || widget.name === "available_categories_json") {
+            hideWidget(widget);
+        }
+    }
+
+    const state = createPanel(node);
+    addSpacerWidget(node, state);
+
+    const categoriesWidget = getBackingWidget(node, "available_categories_json");
+    const selectedWidget = getBackingWidget(node, "selected_categories_json");
+    if (categoriesWidget?.value) {
+        node.properties = node.properties || {};
+        node.properties.available_categories_json = categoriesWidget.value;
+    }
+
+    const categories = parseCategoryList(categoriesWidget?.value || node.properties?.available_categories_json);
+    const encodedSelection =
+        typeof selectedWidget?.value === "string" && selectedWidget.value.trim()
+            ? selectedWidget.value.trim()
+            : typeof node.properties?.selected_categories_json === "string"
+              ? node.properties.selected_categories_json.trim()
+              : "";
+
+    const previousCategories = JSON.stringify(state.categories);
+    const previousSelected = JSON.stringify(state.selectedCategories);
+    state.categories = categories;
+    if (encodedSelection) {
+        state.selectedCategories = parseCategoryList(encodedSelection).filter((category) => categories.includes(category));
+        state.selectionTouched = true;
+    } else if (Array.isArray(node.properties?.selected_categories)) {
+        state.selectedCategories = node.properties.selected_categories.filter((category) => categories.includes(category));
+        state.selectionTouched = Boolean(node.properties?.__dtfSelectionTouched);
+    } else {
+        const keepUnclassified = Boolean(getBackingWidget(node, "keep_unclassified")?.value);
+        state.selectedCategories = getDefaultSelection(categories, keepUnclassified);
+        state.selectionTouched = false;
+    }
+
+    if (!state.selectedCategories.length && categories.length) {
+        const keepUnclassified = Boolean(getBackingWidget(node, "keep_unclassified")?.value);
+        state.selectedCategories = getDefaultSelection(categories, keepUnclassified);
+        state.selectionTouched = false;
+    }
+
+    const categoriesChanged = previousCategories !== JSON.stringify(state.categories);
+    const selectionChanged = previousSelected !== JSON.stringify(state.selectedCategories);
+
+    renderButtons(node, state);
+    if (selectionChanged || categoriesChanged) {
+        syncSelectedValue(node, state);
+    }
+    ensureNodeSize(node, state);
+    return state;
+}
+
+function updatePanelPosition(state) {
+    const { node, root } = state;
     const canvas = app.canvas?.canvas;
     const ds = app.canvas?.ds;
-    const nodeStillExists = Boolean(app.graph?.getNodeById?.(node.id));
-    if (!nodeStillExists) {
-        removeDomPanel(node);
+    if (!canvas || !ds || !document.body.contains(canvas)) {
+        root.classList.add("is-hidden");
         return;
     }
 
@@ -386,17 +382,12 @@ function updatePanelPosition(panelState) {
         document.body.appendChild(root);
     }
 
-    if (!canvas || !ds || !document.body.contains(canvas) || !document.body.contains(root)) {
-        root.classList.add("is-hidden");
-        return;
-    }
-
     if (node.flags?.collapsed || node.mode === 4) {
         root.classList.add("is-hidden");
         return;
     }
 
-    ensureNodeSize(node, panelState);
+    ensureNodeSize(node, state);
 
     const rect = canvas.getBoundingClientRect();
     const scale = ds.scale || 1;
@@ -409,89 +400,44 @@ function updatePanelPosition(panelState) {
     root.classList.remove("is-hidden");
 }
 
-function startLayoutLoop() {
-    if (layoutLoopStarted) {
+function cleanupPanels() {
+    const liveIds = new Set((app.graph?._nodes || []).filter(isTargetNode).map((node) => String(node.id)));
+    for (const [nodeId] of domPanels.entries()) {
+        if (!liveIds.has(String(nodeId))) {
+            removePanel(nodeId);
+        }
+    }
+}
+
+function startLoop() {
+    if (loopStarted) {
         return;
     }
 
-    layoutLoopStarted = true;
+    loopStarted = true;
     const tick = () => {
-        reconcileManagedNodes();
-        cleanupOrphanPanels();
-        for (const panelState of domPanels.values()) {
-            updatePanelPosition(panelState);
+        for (const node of app.graph?._nodes || []) {
+            if (!isTargetNode(node)) {
+                continue;
+            }
+            const state = ensureManagedNode(node);
+            if (state) {
+                updatePanelPosition(state);
+            }
         }
+        cleanupPanels();
         window.requestAnimationFrame(tick);
     };
     window.requestAnimationFrame(tick);
 }
 
-function addSpacerWidget(node, panelState) {
-    const widget = {
-        type: "dtf_dom_spacer",
-        name: "category_picker",
-        value: "",
-        options: {},
-        computeSize(width) {
-            const panelWidth = Math.max(width - PANEL_LEFT - PANEL_RIGHT, 180);
-            if (panelState.root.style.width !== `${panelWidth}px`) {
-                panelState.root.style.width = `${panelWidth}px`;
-            }
-
-            panelState.panelHeight = Math.max(panelState.root.offsetHeight || MIN_PANEL_HEIGHT, MIN_PANEL_HEIGHT);
-            return [width, panelState.panelHeight + 8];
-        },
-        draw() {
-            ensureNodeSize(node, panelState);
-            return panelState.panelHeight + 8;
-        },
-    };
-
-    node.addCustomWidget(widget);
-}
-
 app.registerExtension({
     name: "Danbooru.TagCategoryFilter",
-    beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== NODE_NAME) {
-            return;
-        }
-
-        const onNodeCreated = nodeType.prototype.onNodeCreated;
-        nodeType.prototype.onNodeCreated = function onNodeCreatedWrapped() {
-            const result = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
-            const panelState = ensureManagedNode(this);
-
-            const keepWidget = getBackingWidget(this, "keep_unclassified");
-            if (keepWidget) {
-                const originalCallback = keepWidget.callback;
-                keepWidget.callback = (...args) => {
-                    if (originalCallback) {
-                        originalCallback.apply(keepWidget, args);
-                    }
-                    const managedPanel = ensureManagedNode(this);
-                    if (managedPanel && !managedPanel.selectionTouched) {
-                        loadSelectionState(this, managedPanel);
-                    }
-                };
-            }
-
-            startLayoutLoop();
-            return result;
-        };
-
-        const onConfigure = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function onConfigureWrapped(info) {
-            const result = onConfigure ? onConfigure.apply(this, arguments) : undefined;
-            ensureManagedNode(this);
-            startLayoutLoop();
-            return result;
-        };
-
-        const onRemoved = nodeType.prototype.onRemoved;
-        nodeType.prototype.onRemoved = function onRemovedWrapped() {
-            removeDomPanel(this);
-            return onRemoved ? onRemoved.apply(this, arguments) : undefined;
-        };
+    setup() {
+        startLoop();
+    },
+    nodeCreated(node) {
+        ensureManagedNode(node);
+        startLoop();
     },
 });

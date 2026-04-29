@@ -306,6 +306,37 @@ function getBackingWidget(node, name) {
     return node.widgets?.find((widget) => widget.name === name) ?? null;
 }
 
+function getWidgetValueFromAnySource(node, widgetName) {
+    const widget = getBackingWidget(node, widgetName);
+    if (!widget) {
+        return "";
+    }
+
+    if (typeof widget.value === "string" && widget.value.trim().length > 0) {
+        return widget.value;
+    }
+
+    if (Array.isArray(node.widgets_values)) {
+        const index = node.widgets.indexOf(widget);
+        if (index >= 0 && index < node.widgets_values.length) {
+            const val = node.widgets_values[index];
+            if (typeof val === "string" && val.trim().length > 0) {
+                return val;
+            }
+        }
+    }
+
+    if (
+        node.properties &&
+        typeof node.properties[widgetName] === "string" &&
+        node.properties[widgetName].trim().length > 0
+    ) {
+        return node.properties[widgetName];
+    }
+
+    return typeof widget.value === "string" ? widget.value : "";
+}
+
 function hideWidget(widget) {
     if (!widget || widget.__dtfHidden) {
         return;
@@ -315,8 +346,6 @@ function hideWidget(widget) {
     widget.computeSize = () => [0, -4];
     widget.draw = () => {};
     widget.serializeValue = () => widget.value;
-    widget.type = "dtf_hidden";
-    widget.hidden = true;
 }
 
 function getDefaultSelection(categories, keepUnclassified) {
@@ -745,7 +774,6 @@ function addSpacerWidget(node, state) {
     }
 
     const widget = {
-        type: "dtf_dom_spacer",
         name: "category_picker",
         value: "",
         options: { serialize: false },
@@ -794,42 +822,43 @@ function ensureManagedNode(node) {
     const state = createPanel(node);
     addSpacerWidget(node, state);
 
-    const categoriesWidget = getBackingWidget(node, "available_categories_json");
-    const selectedWidget = getBackingWidget(node, "selected_categories_json");
-    const subcategoriesWidget = getBackingWidget(node, "available_subcategories_json");
-    const selectedSubcategoriesWidget = getBackingWidget(node, "selected_subcategories_json");
-    if (categoriesWidget?.value) {
+    const categoriesWidgetValue = getWidgetValueFromAnySource(node, "available_categories_json");
+    const selectedWidgetValue = getWidgetValueFromAnySource(node, "selected_categories_json");
+    const subcategoriesWidgetValue = getWidgetValueFromAnySource(node, "available_subcategories_json");
+    const selectedSubcategoriesWidgetValue = getWidgetValueFromAnySource(node, "selected_subcategories_json");
+
+    if (categoriesWidgetValue) {
         node.properties = node.properties || {};
-        node.properties.available_categories_json = categoriesWidget.value;
+        node.properties.available_categories_json = categoriesWidgetValue;
     }
-    if (subcategoriesWidget?.value) {
+    if (subcategoriesWidgetValue) {
         node.properties = node.properties || {};
-        node.properties.available_subcategories_json = subcategoriesWidget.value;
+        node.properties.available_subcategories_json = subcategoriesWidgetValue;
     }
 
-    const categories = parseCategoryList(categoriesWidget?.value || node.properties?.available_categories_json);
+    const categories = parseCategoryList(categoriesWidgetValue || node.properties?.available_categories_json);
     const availableSubcategories = parseSubcategoryMap(
-        subcategoriesWidget?.value || node.properties?.available_subcategories_json,
+        subcategoriesWidgetValue || node.properties?.available_subcategories_json,
     );
-    const hasWidgetSelection = typeof selectedWidget?.value === "string" && selectedWidget.value.trim().length > 0;
+    const hasWidgetSelection = typeof selectedWidgetValue === "string" && selectedWidgetValue.trim().length > 0;
     const hasPropertySelection =
         typeof node.properties?.selected_categories_json === "string" &&
         node.properties.selected_categories_json.trim().length > 0;
     const hasWidgetSubcategorySelection =
-        typeof selectedSubcategoriesWidget?.value === "string" &&
-        selectedSubcategoriesWidget.value.trim().length > 0;
+        typeof selectedSubcategoriesWidgetValue === "string" &&
+        selectedSubcategoriesWidgetValue.trim().length > 0;
     const hasPropertySubcategorySelection =
         typeof node.properties?.selected_subcategories_json === "string" &&
         node.properties.selected_subcategories_json.trim().length > 0;
     const encodedSelection =
         hasWidgetSelection
-            ? selectedWidget.value.trim()
+            ? selectedWidgetValue.trim()
             : hasPropertySelection
               ? node.properties.selected_categories_json.trim()
               : "";
     const encodedSubcategorySelection =
         hasWidgetSubcategorySelection
-            ? selectedSubcategoriesWidget.value.trim()
+            ? selectedSubcategoriesWidgetValue.trim()
             : hasPropertySubcategorySelection
               ? node.properties.selected_subcategories_json.trim()
               : "";

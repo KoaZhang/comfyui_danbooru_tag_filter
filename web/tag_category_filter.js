@@ -997,13 +997,35 @@ function startLoop() {
     window.requestAnimationFrame(tick);
 }
 
+function tryShowPanel(state) {
+    if (!state) {
+        return;
+    }
+    const canvas = app.canvas?.canvas;
+    const ds = app.canvas?.ds;
+    if (!canvas || !ds || !document.body.contains(canvas)) {
+        return;
+    }
+    updatePanelPosition(state);
+}
+
 app.registerExtension({
     name: "Danbooru.TagCategoryFilter",
     setup() {
         startLoop();
     },
     nodeCreated(node) {
-        ensureManagedNode(node);
+        const state = ensureManagedNode(node);
         startLoop();
+        tryShowPanel(state);
+    },
+    loadedGraphNode(node) {
+        const state = ensureManagedNode(node);
+        if (state) {
+            syncSelectedValue(node, state);
+            renderButtons(node, state);
+            ensureNodeSize(node, state);
+        }
+        tryShowPanel(state);
     },
 });

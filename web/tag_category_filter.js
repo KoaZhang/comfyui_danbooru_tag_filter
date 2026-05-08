@@ -13,7 +13,7 @@ const DOUBLE_CLICK_DELAY = 220;
 
 const domPanels = new Map();
 let stylesInjected = false;
-let loopStarted = false;
+let animationFrameId = null;
 
 function isTargetNode(node) {
     if (!node) {
@@ -803,6 +803,24 @@ function ensureNodeSize(node, state) {
     }
 }
 
+function ensureDrawPatch(node) {
+    if (node.__dtfDrawPatched) {
+        return;
+    }
+    node.__dtfDrawPatched = true;
+
+    const origOnDrawBackground = node.onDrawBackground;
+    node.onDrawBackground = function (ctx) {
+        const state = ensureManagedNode(this);
+        if (state) {
+            updatePanelPosition(state);
+        }
+        if (origOnDrawBackground) {
+            return origOnDrawBackground.call(this, ctx);
+        }
+    };
+}
+
 function ensureManagedNode(node) {
     if (!isTargetNode(node)) {
         return null;
@@ -821,6 +839,7 @@ function ensureManagedNode(node) {
 
     const state = createPanel(node);
     addSpacerWidget(node, state);
+    ensureDrawPatch(node);
 
     const categoriesWidgetValue = getWidgetValueFromAnySource(node, "available_categories_json");
     const selectedWidgetValue = getWidgetValueFromAnySource(node, "selected_categories_json");
@@ -953,12 +972,19 @@ function updatePanelPosition(state) {
         return;
     }
 
+    if (!Array.isArray(node.pos) || node.pos.length < 2 || !Array.isArray(node.size) || node.size.length < 2) {
+        root.classList.add("is-hidden");
+        return;
+    }
+
     ensureNodeSize(node, state);
 
     const rect = canvas.getBoundingClientRect();
     const scale = ds.scale || 1;
-    const left = rect.left + window.scrollX + (node.pos[0] + ds.offset[0] + PANEL_LEFT) * scale;
-    const top = rect.top + window.scrollY + (node.pos[1] + ds.offset[1] + PANEL_TOP) * scale;
+    const offsetX = Array.isArray(ds.offset) ? ds.offset[0] : 0;
+    const offsetY = Array.isArray(ds.offset) ? ds.offset[1] : 0;
+    const left = rect.left + window.scrollX + (node.pos[0] + offsetX + PANEL_LEFT) * scale;
+    const top = rect.top + window.scrollY + (node.pos[1] + offsetY + PANEL_TOP) * scale;
     const width = Math.max(node.size[0] - PANEL_LEFT - PANEL_RIGHT, 180);
 
     root.style.width = `${width}px`;
@@ -976,25 +1002,36 @@ function cleanupPanels() {
 }
 
 function startLoop() {
-    if (loopStarted) {
+    if (animationFrameId !== null) {
         return;
     }
 
-    loopStarted = true;
     const tick = () => {
-        for (const node of app.graph?._nodes || []) {
-            if (!isTargetNode(node)) {
-                continue;
+        animationFrameId = null;
+        try {
+            const nodes = app.graph?._nodes;
+            if (nodes) {
+                for (const node of nodes) {
+                    try {
+                        if (!isTargetNode(node)) {
+                            continue;
+                        }
+                        const state = ensureManagedNode(node);
+                        if (state) {
+                            updatePanelPosition(state);
+                        }
+                    } catch (nodeError) {
+                        console.warn("[DanbooruTagCategoryFilter] Error processing node:", nodeError);
+                    }
+                }
             }
-            const state = ensureManagedNode(node);
-            if (state) {
-                updatePanelPosition(state);
-            }
+            cleanupPanels();
+        } catch (error) {
+            console.warn("[DanbooruTagCategoryFilter] Loop error:", error);
         }
-        cleanupPanels();
-        window.requestAnimationFrame(tick);
+        animationFrameId = window.requestAnimationFrame(tick);
     };
-    window.requestAnimationFrame(tick);
+    animationFrameId = window.requestAnimationFrame(tick);
 }
 
 function tryShowPanel(state) {
